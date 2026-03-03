@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2025 Pedro Ruiz for Adafruit Industries
+# SPDX-FileCopyrightText: 2025 Pedro for Adafruit Industries
 #
 # SPDX-License-Identifier: MIT
 
@@ -240,7 +240,7 @@ def tap_aware_sleep(seconds):
     return False
 
 
-TAP_WINDOW = 0.8          # seconds to wait for additional taps
+TAP_WINDOW = 2.0          # seconds to wait for additional taps
 
 
 def count_taps():
@@ -490,6 +490,7 @@ display_file = "/sd/cache.bmp"  # pylint: disable=invalid-name
 
 # Cache list of local images
 local_images = []
+last_local = ""  # pylint: disable=invalid-name
 
 
 def load_local_images():
@@ -638,6 +639,7 @@ def get_title(json_data):
 # ============================================
 def show_local_image():
     '''Display a random BMP from /sd/imgs/.'''
+    global last_local  # pylint: disable=global-statement,invalid-name
     if not local_images:
         load_local_images()
     if not local_images:
@@ -645,7 +647,12 @@ def show_local_image():
         text_area.text = "No images in /sd/imgs/"
         return False
 
-    fname = random.choice(local_images)
+    # Avoid repeating the same image back to back
+    pool = [f for f in local_images if f != last_local]
+    if not pool:
+        pool = local_images
+    fname = random.choice(pool)
+    last_local = fname
     filepath = LOCAL_IMG_PATH + "/" + fname
     print("Local image:", filepath)
 
