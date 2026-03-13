@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: 2026 Pedro Ruiz for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
+# WiFi credentials — remove or leave blank for offline manual mode
+CIRCUITPY_WIFI_SSID = "your-wifi-ssid"
+CIRCUITPY_WIFI_PASSWORD = "your-wifi-password"
+
+# UTC offset in hours (e.g. -5 for EST, -4 for EDT)
+TZ_OFFSET = "-5"
