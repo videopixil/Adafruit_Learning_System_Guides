@@ -522,34 +522,42 @@ def palette_for_period(period):
     return table[period]
 
 
-def apply_background(period):
-    """Rebuild palette colours for a new period (called once)."""
-    grad_stops, hand_hex, marker_hex = palette_for_period(period)
-    gradient = build_gradient(*grad_stops)
-
+def _fill_tiered_palette(gradient):
+    """Fill background palette with dim-to-bright tiers."""
     for row in range(HEIGHT):
         base = gradient[row]
         r_b = (base >> 16) & 0xFF
         g_b = (base >> 8) & 0xFF
         b_b = base & 0xFF
-
         for t_idx in range(BG_TIERS):
             mult = BG_MULTS[t_idx]
             t_r = min(255, int(r_b * mult))
             t_g = min(255, int(g_b * mult))
             t_b = min(255, int(b_b * mult))
-            bg_palette[t_idx * 32 + row] = pack_rgb(t_r, t_g, t_b)
+            bg_palette[t_idx * 32 + row] = pack_rgb(
+                t_r, t_g, t_b
+            )
+
+
+def _glow_color(color_hex):
+    """Return colour at ~30% brightness for hand glow halo."""
+    return pack_rgb(
+        ((color_hex >> 16) & 0xFF) // 3,
+        ((color_hex >> 8) & 0xFF) // 3,
+        (color_hex & 0xFF) // 3,
+    )
+
+
+def apply_background(period):
+    """Rebuild palette colours for a new period (called once)."""
+    grad_stops, hand_hex, marker_hex = palette_for_period(period)
+    _fill_tiered_palette(build_gradient(*grad_stops))
 
     fg_palette[IDX_HAND] = hand_hex
     fg_palette[IDX_MARKER] = marker_hex
     fg_palette[IDX_CARDINAL] = marker_hex
     fg_palette[IDX_CENTER] = hand_hex
-
-    # Glow: hand colour at ~30% brightness for soft halo
-    glow_r = ((hand_hex >> 16) & 0xFF) // 3
-    glow_g = ((hand_hex >> 8) & 0xFF) // 3
-    glow_b = (hand_hex & 0xFF) // 3
-    fg_palette[IDX_GLOW] = pack_rgb(glow_r, glow_g, glow_b)
+    fg_palette[IDX_GLOW] = _glow_color(hand_hex)
 
     for s_i, _ in enumerate(STARS):
         fg_palette[IDX_STAR_BASE + s_i] = 0xFFDD00
@@ -585,6 +593,78 @@ def animate_background(mono_now):
 # ================================================================== #
 #  FRAME RENDERER                                                     #
 # ================================================================== #
+def _draw_markers():
+    """Draw 12 hour markers as plus shapes."""
+    for h_mark in range(12):
+        angle = h_mark * math.pi / 6.0
+        m_x = int(CENTER_X + CLOCK_RADIUS * math.sin(angle))
+        m_y = int(CENTER_Y - CLOCK_RADIUS * math.cos(angle))
+        p_idx = IDX_CARDINAL if h_mark % 3 == 0 else IDX_MARKER
+        if 0 <= m_x < WIDTH and 0 <= m_y < HEIGHT:
+            fg_bitmap[m_x, m_y] = p_idx
+        for d_xy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            p_x = m_x + d_xy[0]
+            p_y = m_y + d_xy[1]
+            if 0 <= p_x < WIDTH and 0 <= p_y < HEIGHT:
+                fg_bitmap[p_x, p_y] = p_idx
+
+
+def _draw_stars(mono_now):
+    """Draw twinkling yellow stars (nighttime only)."""
+    for s_idx, star in enumerate(STARS):
+        s_x, s_y, phase = star
+        brightness = 0.25 + 0.75 * max(
+            0.0, math.sin(mono_now * 0.4 + phase)
+        )
+        fg_palette[IDX_STAR_BASE + s_idx] = pack_rgb(
+            int(0xFF * brightness), int(0xDD * brightness), 0
+        )
+        if 0 <= s_x < WIDTH and 0 <= s_y < HEIGHT:
+            fg_bitmap[s_x, s_y] = IDX_STAR_BASE + s_idx
+
+
+def _draw_hands(hours, minutes, seconds):
+    """Draw glow halos then hands on top, plus center dot."""
+    m_angle = (minutes * math.pi / 30.0
+               + seconds * math.pi / 1800.0)
+    m_end_x = int(CENTER_X + MINUTE_HAND_LEN * math.sin(m_angle))
+    m_end_y = int(CENTER_Y - MINUTE_HAND_LEN * math.cos(m_angle))
+
+    h_angle = ((hours % 12) * math.pi / 6.0
+               + minutes * math.pi / 360.0)
+    h_end_x = int(CENTER_X + HOUR_HAND_LEN * math.sin(h_angle))
+    h_end_y = int(CENTER_Y - HOUR_HAND_LEN * math.cos(h_angle))
+
+    # Glow halos (drawn first, hands paint over)
+    draw_thick_line(
+        fg_bitmap, CENTER_X, CENTER_Y, m_end_x, m_end_y, IDX_GLOW
+    )
+    draw_thick_line(
+        fg_bitmap, CENTER_X, CENTER_Y, h_end_x, h_end_y, IDX_GLOW
+    )
+    draw_line(
+        fg_bitmap, CENTER_X - 1, CENTER_Y - 1,
+        h_end_x - 1, h_end_y - 1, IDX_GLOW
+    )
+    draw_line(
+        fg_bitmap, CENTER_X + 1, CENTER_Y + 1,
+        h_end_x + 1, h_end_y + 1, IDX_GLOW
+    )
+
+    # Minute hand (single pixel, over glow)
+    draw_line(
+        fg_bitmap, CENTER_X, CENTER_Y, m_end_x, m_end_y, IDX_HAND
+    )
+
+    # Hour hand (thicker, over glow)
+    draw_thick_line(
+        fg_bitmap, CENTER_X, CENTER_Y, h_end_x, h_end_y, IDX_HAND
+    )
+
+    # Center pivot dot
+    fill_dot(fg_bitmap, CENTER_X, CENTER_Y, 1, IDX_CENTER)
+
+
 def draw_clock(hours, minutes, seconds, mono_now,
                period_override=None):
     """Render one frame of the analog clock onto the foreground."""
@@ -599,86 +679,12 @@ def draw_clock(hours, minutes, seconds, mono_now,
         apply_background(period)
         active_period = period
 
-    # Animate background wave every frame
     animate_background(mono_now)
-
     fg_bitmap.fill(IDX_CLEAR)
-
-    # ---- Hour markers around the dial (plus/star shape) ----
-    for h_mark in range(12):
-        angle = h_mark * math.pi / 6.0
-        m_x = int(CENTER_X + CLOCK_RADIUS * math.sin(angle))
-        m_y = int(CENTER_Y - CLOCK_RADIUS * math.cos(angle))
-        if h_mark % 3 == 0:
-            p_idx = IDX_CARDINAL
-        else:
-            p_idx = IDX_MARKER
-        if 0 <= m_x < WIDTH and 0 <= m_y < HEIGHT:
-            fg_bitmap[m_x, m_y] = p_idx
-        for d_xy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-            p_x = m_x + d_xy[0]
-            p_y = m_y + d_xy[1]
-            if 0 <= p_x < WIDTH and 0 <= p_y < HEIGHT:
-                fg_bitmap[p_x, p_y] = p_idx
-
-    # ---- Stars (nighttime only) ----
+    _draw_markers()
     if period == "night":
-        for s_idx, star in enumerate(STARS):
-            s_x, s_y, phase = star
-            brightness = 0.25 + 0.75 * max(
-                0.0, math.sin(mono_now * 0.4 + phase)
-            )
-            star_r = int(0xFF * brightness)
-            star_g = int(0xDD * brightness)
-            star_b = 0
-            fg_palette[IDX_STAR_BASE + s_idx] = pack_rgb(
-                star_r, star_g, star_b
-            )
-            if 0 <= s_x < WIDTH and 0 <= s_y < HEIGHT:
-                fg_bitmap[s_x, s_y] = IDX_STAR_BASE + s_idx
-
-    # ---- Hand glow (draw wider halos FIRST, hands paint over) ----
-    m_angle = (minutes * math.pi / 30.0
-               + seconds * math.pi / 1800.0)
-    m_end_x = int(CENTER_X + MINUTE_HAND_LEN * math.sin(m_angle))
-    m_end_y = int(CENTER_Y - MINUTE_HAND_LEN * math.cos(m_angle))
-
-    h_angle = ((hours % 12) * math.pi / 6.0
-               + minutes * math.pi / 360.0)
-    h_end_x = int(CENTER_X + HOUR_HAND_LEN * math.sin(h_angle))
-    h_end_y = int(CENTER_Y - HOUR_HAND_LEN * math.cos(h_angle))
-
-    # Minute glow: 3-line wide halo
-    draw_thick_line(
-        fg_bitmap, CENTER_X, CENTER_Y, m_end_x, m_end_y, IDX_GLOW
-    )
-    # Hour glow: 5-line wide halo
-    draw_thick_line(
-        fg_bitmap, CENTER_X, CENTER_Y, h_end_x, h_end_y, IDX_GLOW
-    )
-    draw_line(
-        fg_bitmap, CENTER_X - 1, CENTER_Y - 1,
-        h_end_x - 1, h_end_y - 1, IDX_GLOW
-    )
-    draw_line(
-        fg_bitmap, CENTER_X + 1, CENTER_Y + 1,
-        h_end_x + 1, h_end_y + 1, IDX_GLOW
-    )
-
-    # ---- Minute hand (single pixel, paints over glow) ----
-    draw_line(
-        fg_bitmap, CENTER_X, CENTER_Y, m_end_x, m_end_y, IDX_HAND
-    )
-
-    # ---- Hour hand (thicker, paints over glow) ----
-    draw_thick_line(
-        fg_bitmap, CENTER_X, CENTER_Y, h_end_x, h_end_y, IDX_HAND
-    )
-
-    # ---- Center pivot dot ----
-    fill_dot(fg_bitmap, CENTER_X, CENTER_Y, 1, IDX_CENTER)
-
-    # Push completed frame to display
+        _draw_stars(mono_now)
+    _draw_hands(hours, minutes, seconds)
     display.refresh()
 
 
