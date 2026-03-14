@@ -16,3 +16,8 @@ TZ_STD_OFFSET = "-5"
 # through 1st Sunday November). Set to false for
 # non-US timezones or locations that don't observe DST.
 DST_AUTO = "true"
+
+# Display rotation (0, 90, 180, 270)
+# 0 = USB left, 90 = USB down, 180 = USB right, 270 = USB up
+# Long-press UP button to cycle at runtime
+DISPLAY_ROTATION = "90"

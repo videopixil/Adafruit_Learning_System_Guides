@@ -55,7 +55,9 @@ fails, the display shows a message and enters a manual time-set screen:
 
 ### Controls (Clock Running)
 
-- **UP button** — Toggle wave animation speed (calm / fast)
+- **UP button (short press)** — Toggle wave animation speed (calm / fast)
+- **UP button (long press 1.5s)** — Cycle display rotation (0° → 90° →
+  180° → 270°) for different USB cable mounting directions
 - **DOWN button** — Cycle background palettes (morning → day → evening →
   night → auto)
 
@@ -107,3 +109,9 @@ Key values to adjust at the top of `code.py`:
 - `BG_MULTS` — Radial glow brightness tiers
 - `GLOW_RADIUS` — How far the center glow extends
 - `STARS` — Star positions and twinkle phase offsets
+
+Key values in `settings.toml`:
+
+- `TZ_STD_OFFSET` — Standard UTC offset (e.g. `-5` for Eastern)
+- `DST_AUTO` — Enable/disable US DST computation
+- `DISPLAY_ROTATION` — Default rotation (0, 90, 180, 270)

@@ -60,6 +60,12 @@ NIGHT_HOUR = 20
 WAVE_SPEED = 0.9      # calm (default)
 WAVE_SPEED_FAST = 1.8  # energetic
 
+# Display rotation (0, 90, 180, 270) — set for USB cable direction.
+# 0=USB left, 90=USB down, 180=USB right, 270=USB up.
+# Long-press UP button to cycle through rotations at runtime.
+ROTATIONS = (0, 90, 180, 270)
+DEFAULT_ROTATION = int(os.getenv("DISPLAY_ROTATION") or "90")
+
 # Timezone — US DST computed automatically from NTP date.
 # Standard offset from UTC (no DST). Code adds +1 during DST.
 # Examples: -5 for Eastern, -6 for Central, -7 for Mountain,
@@ -362,6 +368,7 @@ rgb_matrix = rgbmatrix.RGBMatrix(
 display = framebufferio.FramebufferDisplay(
     rgb_matrix, auto_refresh=False
 )
+display.rotation = DEFAULT_ROTATION
 
 group = displayio.Group()
 group.append(displayio.TileGrid(bg_bitmap, pixel_shader=bg_palette))
@@ -445,6 +452,9 @@ demo_index = -1  # pylint: disable=invalid-name
 btn_was_pressed = False  # pylint: disable=invalid-name
 btn_dn_was_pressed = False  # pylint: disable=invalid-name
 wave_speed = WAVE_SPEED  # pylint: disable=invalid-name
+rot_index = ROTATIONS.index(DEFAULT_ROTATION)  # pylint: disable=invalid-name
+up_hold_start = 0.0  # pylint: disable=invalid-name
+up_handled = False  # pylint: disable=invalid-name
 
 
 # ================================================================== #
@@ -782,17 +792,30 @@ def draw_clock(hours, minutes, seconds, mono_now,
 #  MAIN LOOP                                                          #
 # ================================================================== #
 if has_wifi:
-    print("UP = wave speed | DOWN = cycle backgrounds")
+    print("UP = wave speed (hold=rotate) | DOWN = backgrounds")
 else:
-    print("Offline mode — UP = speed | DOWN = backgrounds")
+    print("Offline: UP = speed (hold=rotate) | DOWN = bg")
 
 now = time.localtime()
 draw_clock(now.tm_hour, now.tm_min, now.tm_sec, time.monotonic())
 
 while True:
-    # ---- UP button: toggle wave speed ----
+    # ---- UP button: short=wave speed, long=rotate display ----
     btn_pressed = not btn_up.value
-    if btn_pressed and not btn_was_pressed:
+    if btn_pressed:
+        if not btn_was_pressed:
+            # Button just pressed — start hold timer
+            up_hold_start = time.monotonic()  # pylint: disable=invalid-name
+            up_handled = False  # pylint: disable=invalid-name
+        elif (not up_handled
+              and time.monotonic() - up_hold_start >= 1.5):
+            # Long press: cycle rotation
+            rot_index = (rot_index + 1) % 4  # pylint: disable=invalid-name
+            display.rotation = ROTATIONS[rot_index]
+            up_handled = True  # pylint: disable=invalid-name
+            print("Rotation: {}".format(ROTATIONS[rot_index]))
+    elif btn_was_pressed and not up_handled:
+        # Button released before long press — short press
         if wave_speed == WAVE_SPEED:
             wave_speed = WAVE_SPEED_FAST  # pylint: disable=invalid-name
             print("Wave speed: fast")
