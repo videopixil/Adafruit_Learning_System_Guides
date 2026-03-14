@@ -420,11 +420,11 @@ password = os.getenv("CIRCUITPY_WIFI_PASSWORD")
 if ssid and password:
     setup_screen(["WIFI", "..."])
     try:
-        import ssl  # pylint: disable=import-outside-toplevel
         import socketpool  # pylint: disable=import-outside-toplevel
         import wifi  # pylint: disable=import-outside-toplevel
         import adafruit_ntp  # pylint: disable=import-outside-toplevel
         import adafruit_requests  # pylint: disable=import-outside-toplevel
+        print("Connecting to WiFi...")
         wifi.radio.connect(ssid, password)
         print("WiFi OK - IP: {}".format(wifi.radio.ipv4_address))
         pool = socketpool.SocketPool(wifi.radio)
@@ -432,14 +432,13 @@ if ssid and password:
         # -- Fetch DST-aware UTC offset from worldtimeapi.org --
         tz_offset = TZ_OFFSET  # fallback
         try:
-            requests = adafruit_requests.Session(
-                pool, ssl.create_default_context()
-            )
+            print("Fetching timezone for {}...".format(TIMEZONE))
+            requests = adafruit_requests.Session(pool)
             url = (
                 "http://worldtimeapi.org/api/timezone/"
                 + TIMEZONE
             )
-            resp = requests.get(url)
+            resp = requests.get(url, timeout=10)
             data = resp.json()
             resp.close()
             # Parse utc_offset like "-04:00" or "+05:30"
@@ -455,6 +454,7 @@ if ssid and password:
             print("Timezone API failed, using "
                   "TZ_OFFSET={}: {}".format(TZ_OFFSET, tz_exc))
 
+        print("NTP sync...")
         ntp = adafruit_ntp.NTP(
             pool, tz_offset=tz_offset, cache_seconds=3600
         )
