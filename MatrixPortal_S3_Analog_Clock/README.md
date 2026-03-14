@@ -26,8 +26,6 @@ Install the following from the
 into the `/lib` folder on your CIRCUITPY drive:
 
 - `adafruit_ntp.mpy`
-- `adafruit_connection_manager.mpy`
-- `adafruit_requests.mpy`
 
 These are only required for WiFi/NTP mode. The clock also runs in
 offline manual mode without them.
@@ -38,9 +36,8 @@ offline manual mode without them.
    on the MatrixPortal S3
 2. Copy the required libraries to `/lib` on the CIRCUITPY drive
 3. Copy `settings.toml` and `code.py` to the root of the CIRCUITPY drive
-4. Edit `settings.toml` with your WiFi credentials and IANA timezone
-   string (e.g. `America/New_York`, `Europe/London`, `Asia/Tokyo`)
-   — see http://worldtimeapi.org/timezones for the full list
+4. Edit `settings.toml` with your WiFi credentials and standard UTC
+   offset (e.g. `-5` for US Eastern, `-8` for US Pacific)
 
 ## Usage
 
@@ -77,12 +74,14 @@ Color palettes are inspired by the Florida Arts License Plate.
 
 ### Daylight Saving Time
 
-The clock automatically handles DST by querying
-[worldtimeapi.org](http://worldtimeapi.org) at boot. Set `TIMEZONE` in
-`settings.toml` to your IANA timezone string (e.g. `America/New_York`)
-and the correct UTC offset — including any DST adjustment — is fetched
-automatically. If the API is unreachable, the clock falls back to the
-static `TZ_OFFSET` value.
+US Daylight Saving Time is computed automatically from the NTP date
+(2nd Sunday in March through 1st Sunday in November). Set
+`TZ_STD_OFFSET` in `settings.toml` to your standard UTC offset (e.g.
+`-5` for Eastern) and `DST_AUTO = "true"`. The clock adds +1 hour
+during DST with no external API dependency.
+
+For non-US timezones or locations that don't observe DST, set
+`DST_AUTO = "false"` and use the correct fixed offset.
 
 ### Features
 

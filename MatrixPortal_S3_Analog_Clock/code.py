@@ -16,15 +16,13 @@ Hardware:
   - No Address E jumper needed (4 address lines only)
 
 Boot flow:
-  - If WiFi creds found in settings.toml -> fetch DST-aware
-    UTC offset from worldtimeapi.org -> NTP sync -> clock
+  - If WiFi creds found in settings.toml -> NTP sync ->
+    compute DST from date -> clock
   - If no WiFi creds or connection fails -> display message ->
     manual time set with UP/DOWN buttons -> clock
 
 Libraries required in /lib:
   adafruit_ntp.mpy
-  adafruit_connection_manager.mpy
-  adafruit_requests.mpy
 """
 
 import math
@@ -62,11 +60,12 @@ NIGHT_HOUR = 20
 WAVE_SPEED = 0.9      # calm (default)
 WAVE_SPEED_FAST = 1.8  # energetic
 
-# Timezone — IANA string for auto-DST via worldtimeapi.org
-# See: http://worldtimeapi.org/timezones
-# Falls back to TZ_OFFSET if API call fails or no WiFi
-TIMEZONE = os.getenv("TIMEZONE") or "America/New_York"
-TZ_OFFSET = int(os.getenv("TZ_OFFSET") or "-5")
+# Timezone — US DST computed automatically from NTP date.
+# Standard offset from UTC (no DST). Code adds +1 during DST.
+# Examples: -5 for Eastern, -6 for Central, -7 for Mountain,
+# -8 for Pacific.  Set DST_AUTO = "false" to disable.
+TZ_STD_OFFSET = int(os.getenv("TZ_STD_OFFSET") or "-5")
+DST_AUTO = (os.getenv("DST_AUTO") or "true").lower() == "true"
 
 # ------------------------------------------------------------------ #
 #  Color palettes — (top, middle, bottom) RGB tuples per period       #
@@ -181,6 +180,56 @@ def center_text_x(text):
 # ================================================================== #
 #  Helper functions                                                    #
 # ================================================================== #
+def _nth_weekday(year, month, weekday, nth):
+    """Return day-of-month for the nth weekday in a month.
+
+    weekday: 0=Mon ... 6=Sun.  nth: 1=first, 2=second, etc.
+    """
+    # Day-of-week for the 1st of the month (time.mktime unavail,
+    # so use Zeller-like formula via time.struct_time)
+    first = time.mktime(time.struct_time((
+        year, month, 1, 0, 0, 0, 0, -1, -1
+    )))
+    first_wday = time.localtime(first).tm_wday
+    # Days until the target weekday
+    diff = (weekday - first_wday) % 7
+    return 1 + diff + (nth - 1) * 7
+
+
+def compute_dst_offset(std_offset):
+    """Return UTC offset including US DST if active.
+
+    US DST: 2nd Sunday in March 2:00 AM -> 1st Sunday in
+    November 2:00 AM.  Adds +1 hour during DST.
+    """
+    if not DST_AUTO:
+        return std_offset
+    now_t = time.localtime()
+    year = now_t.tm_year
+    # 2nd Sunday in March (weekday 6 = Sunday)
+    dst_start_day = _nth_weekday(year, 3, 6, 2)
+    # 1st Sunday in November
+    dst_end_day = _nth_weekday(year, 11, 6, 1)
+    month = now_t.tm_mon
+    day = now_t.tm_mday
+    hour = now_t.tm_hour
+    # Check if we are in the DST window
+    if month < 3 or month > 11:
+        return std_offset
+    if month > 3 and month < 11:
+        return std_offset + 1
+    if month == 3:
+        if day > dst_start_day:
+            return std_offset + 1
+        if day == dst_start_day and hour >= 2:
+            return std_offset + 1
+        return std_offset
+    # month == 11
+    if day > dst_end_day:
+        return std_offset
+    if day == dst_end_day and hour >= 2:
+        return std_offset
+    return std_offset + 1
 def lerp_color(color_a, color_b, frac):
     """Blend two (r, g, b) tuples by fraction 0.0-1.0."""
     return (
@@ -413,6 +462,7 @@ has_wifi = False  # pylint: disable=invalid-name
 last_sync = 0  # pylint: disable=invalid-name
 active_period = None  # pylint: disable=invalid-name
 ntp = None  # pylint: disable=invalid-name
+pool = None  # pylint: disable=invalid-name
 
 ssid = os.getenv("CIRCUITPY_WIFI_SSID")
 password = os.getenv("CIRCUITPY_WIFI_PASSWORD")
@@ -423,42 +473,29 @@ if ssid and password:
         import socketpool  # pylint: disable=import-outside-toplevel
         import wifi  # pylint: disable=import-outside-toplevel
         import adafruit_ntp  # pylint: disable=import-outside-toplevel
-        import adafruit_requests  # pylint: disable=import-outside-toplevel
         print("Connecting to WiFi...")
         wifi.radio.connect(ssid, password)
         print("WiFi OK - IP: {}".format(wifi.radio.ipv4_address))
         pool = socketpool.SocketPool(wifi.radio)
 
-        # -- Fetch DST-aware UTC offset from worldtimeapi.org --
-        tz_offset = TZ_OFFSET  # fallback
-        try:
-            print("Fetching timezone for {}...".format(TIMEZONE))
-            requests = adafruit_requests.Session(pool)
-            url = (
-                "http://worldtimeapi.org/api/timezone/"
-                + TIMEZONE
-            )
-            resp = requests.get(url, timeout=10)
-            data = resp.json()
-            resp.close()
-            # Parse utc_offset like "-04:00" or "+05:30"
-            ofs_str = data.get("utc_offset", "")
-            if ofs_str:
-                sign = -1 if ofs_str[0] == "-" else 1
-                parts = ofs_str.lstrip("+-").split(":")
-                tz_offset = sign * int(parts[0])
-                print("DST offset: {} ({})".format(
-                    tz_offset, data.get("abbreviation", "")
-                ))
-        except Exception as tz_exc:  # pylint: disable=broad-except
-            print("Timezone API failed, using "
-                  "TZ_OFFSET={}: {}".format(TZ_OFFSET, tz_exc))
-
-        print("NTP sync...")
+        # First sync with standard offset to get correct date
+        print("NTP sync (standard offset)...")
         ntp = adafruit_ntp.NTP(
-            pool, tz_offset=tz_offset, cache_seconds=3600
+            pool, tz_offset=TZ_STD_OFFSET, cache_seconds=3600
         )
         rtc.RTC().datetime = ntp.datetime
+
+        # Compute DST from the date we just got
+        tz_offset = compute_dst_offset(TZ_STD_OFFSET)
+        if tz_offset != TZ_STD_OFFSET:
+            print("DST active: offset {}".format(tz_offset))
+            ntp = adafruit_ntp.NTP(
+                pool, tz_offset=tz_offset, cache_seconds=3600
+            )
+            rtc.RTC().datetime = ntp.datetime
+        else:
+            print("Standard time: offset {}".format(tz_offset))
+
         last_sync = time.monotonic()
         has_wifi = True  # pylint: disable=invalid-name
         print("NTP sync OK: {}".format(time.localtime()))
@@ -483,8 +520,11 @@ if not has_wifi:
     blink_state = True  # pylint: disable=invalid-name
     up_prev = True  # pylint: disable=invalid-name
     dn_prev = True  # pylint: disable=invalid-name
+    hold_start = 0.0  # pylint: disable=invalid-name
+    HOLD_TIME = 1.5  # seconds to hold for confirm
 
-    print("Manual time set — UP=increment, DOWN=confirm")
+    print("Manual time set: UP=increment, DOWN=next field")
+    print("  Long press either button to confirm")
 
     while True:
         # Blink toggle every 0.4s
@@ -499,6 +539,36 @@ if not has_wifi:
         up_now = not btn_up.value
         dn_now = not btn_down.value
 
+        # -- Long press detection (either button) --
+        if up_now or dn_now:
+            if hold_start == 0.0:
+                hold_start = time.monotonic()  # pylint: disable=invalid-name
+            elif time.monotonic() - hold_start >= HOLD_TIME:
+                if editing_hr:
+                    # Long press on hours: skip to minutes
+                    editing_hr = False  # pylint: disable=invalid-name
+                    print("Hour set: {}".format(set_hour))
+                else:
+                    # Long press on minutes: accept time
+                    print("Minute set: {}".format(set_min))
+                    now_t = time.localtime()
+                    rtc.RTC().datetime = time.struct_time((
+                        now_t.tm_year, now_t.tm_mon,
+                        now_t.tm_mday, set_hour, set_min,
+                        0, now_t.tm_wday, now_t.tm_yday, -1
+                    ))
+                    print("RTC set to {:02d}:{:02d}".format(
+                        set_hour, set_min
+                    ))
+                    break
+                hold_start = 0.0  # pylint: disable=invalid-name
+                # Wait for button release
+                while not btn_up.value or not btn_down.value:
+                    time.sleep(0.05)
+        else:
+            hold_start = 0.0  # pylint: disable=invalid-name
+
+        # -- Short press: UP increments, DOWN moves field --
         if up_now and not up_prev:
             if editing_hr:
                 set_hour = (set_hour + 1) % 24  # pylint: disable=invalid-name
@@ -507,21 +577,9 @@ if not has_wifi:
 
         if dn_now and not dn_prev:
             if editing_hr:
+                # Short DOWN on hours: move to minutes
                 editing_hr = False  # pylint: disable=invalid-name
                 print("Hour set: {}".format(set_hour))
-            else:
-                # Confirm minute — set RTC and break
-                print("Minute set: {}".format(set_min))
-                now_t = time.localtime()
-                rtc.RTC().datetime = time.struct_time((
-                    now_t.tm_year, now_t.tm_mon, now_t.tm_mday,
-                    set_hour, set_min, 0,
-                    now_t.tm_wday, now_t.tm_yday, -1
-                ))
-                print("RTC set to {:02d}:{:02d}".format(
-                    set_hour, set_min
-                ))
-                break
 
         up_prev = up_now  # pylint: disable=invalid-name
         dn_prev = dn_now  # pylint: disable=invalid-name
@@ -530,13 +588,20 @@ if not has_wifi:
 
 def sync_time():
     """Set the onboard RTC from the NTP server (WiFi only)."""
-    global last_sync  # pylint: disable=global-statement,invalid-name
+    global last_sync, ntp  # pylint: disable=global-statement,invalid-name
     if not has_wifi:
         return
     try:
+        # Recompute DST in case it changed since boot
+        tz_ofs = compute_dst_offset(TZ_STD_OFFSET)
+        ntp = adafruit_ntp.NTP(
+            pool, tz_offset=tz_ofs, cache_seconds=3600
+        )
         rtc.RTC().datetime = ntp.datetime
         last_sync = time.monotonic()
-        print("NTP sync OK: {}".format(time.localtime()))
+        print("NTP sync OK (offset {}): {}".format(
+            tz_ofs, time.localtime()
+        ))
     except Exception as exc:  # pylint: disable=broad-except
         print("NTP sync failed: {}".format(exc))
 

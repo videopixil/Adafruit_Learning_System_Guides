@@ -6,10 +6,13 @@
 CIRCUITPY_WIFI_SSID = "your-wifi-ssid"
 CIRCUITPY_WIFI_PASSWORD = "your-wifi-password"
 
-# IANA timezone for automatic DST handling
-# Full list: http://worldtimeapi.org/timezones
-TIMEZONE = "America/New_York"
+# Standard UTC offset (without DST)
+# Examples: -5 for Eastern, -6 for Central, -7 for Mountain,
+# -8 for Pacific, 0 for GMT, +1 for CET
+TZ_STD_OFFSET = "-5"
 
-# Fallback UTC offset if timezone API is unreachable
-# (e.g. -5 for EST, -4 for EDT, +1 for CET)
-TZ_OFFSET = "-5"
+# Auto-compute US Daylight Saving Time (true/false)
+# When true, adds +1 hour during DST (2nd Sunday March
+# through 1st Sunday November). Set to false for
+# non-US timezones or locations that don't observe DST.
+DST_AUTO = "true"
