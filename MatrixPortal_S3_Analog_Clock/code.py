@@ -16,7 +16,8 @@ Hardware:
   - No Address E jumper needed (4 address lines only)
 
 Boot flow:
-  - If WiFi creds found in settings.toml -> NTP sync -> clock
+  - If WiFi creds found in settings.toml -> fetch DST-aware
+    UTC offset from worldtimeapi.org -> NTP sync -> clock
   - If no WiFi creds or connection fails -> display message ->
     manual time set with UP/DOWN buttons -> clock
 
@@ -61,7 +62,10 @@ NIGHT_HOUR = 20
 WAVE_SPEED = 0.9      # calm (default)
 WAVE_SPEED_FAST = 1.8  # energetic
 
-# Timezone offset from UTC (read from settings.toml or default -5)
+# Timezone — IANA string for auto-DST via worldtimeapi.org
+# See: http://worldtimeapi.org/timezones
+# Falls back to TZ_OFFSET if API call fails or no WiFi
+TIMEZONE = os.getenv("TIMEZONE") or "America/New_York"
 TZ_OFFSET = int(os.getenv("TZ_OFFSET") or "-5")
 
 # ------------------------------------------------------------------ #
@@ -416,18 +420,47 @@ password = os.getenv("CIRCUITPY_WIFI_PASSWORD")
 if ssid and password:
     setup_screen(["WIFI", "..."])
     try:
+        import ssl  # pylint: disable=import-outside-toplevel
         import socketpool  # pylint: disable=import-outside-toplevel
         import wifi  # pylint: disable=import-outside-toplevel
         import adafruit_ntp  # pylint: disable=import-outside-toplevel
+        import adafruit_requests  # pylint: disable=import-outside-toplevel
         wifi.radio.connect(ssid, password)
+        print("WiFi OK - IP: {}".format(wifi.radio.ipv4_address))
         pool = socketpool.SocketPool(wifi.radio)
+
+        # -- Fetch DST-aware UTC offset from worldtimeapi.org --
+        tz_offset = TZ_OFFSET  # fallback
+        try:
+            requests = adafruit_requests.Session(
+                pool, ssl.create_default_context()
+            )
+            url = (
+                "http://worldtimeapi.org/api/timezone/"
+                + TIMEZONE
+            )
+            resp = requests.get(url)
+            data = resp.json()
+            resp.close()
+            # Parse utc_offset like "-04:00" or "+05:30"
+            ofs_str = data.get("utc_offset", "")
+            if ofs_str:
+                sign = -1 if ofs_str[0] == "-" else 1
+                parts = ofs_str.lstrip("+-").split(":")
+                tz_offset = sign * int(parts[0])
+                print("DST offset: {} ({})".format(
+                    tz_offset, data.get("abbreviation", "")
+                ))
+        except Exception as tz_exc:  # pylint: disable=broad-except
+            print("Timezone API failed, using "
+                  "TZ_OFFSET={}: {}".format(TZ_OFFSET, tz_exc))
+
         ntp = adafruit_ntp.NTP(
-            pool, tz_offset=TZ_OFFSET, cache_seconds=3600
+            pool, tz_offset=tz_offset, cache_seconds=3600
         )
         rtc.RTC().datetime = ntp.datetime
         last_sync = time.monotonic()
         has_wifi = True  # pylint: disable=invalid-name
-        print("WiFi OK — IP: {}".format(wifi.radio.ipv4_address))
         print("NTP sync OK: {}".format(time.localtime()))
     except Exception as exc:  # pylint: disable=broad-except
         print("WiFi failed: {}".format(exc))

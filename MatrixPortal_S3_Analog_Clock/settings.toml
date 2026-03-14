@@ -6,5 +6,10 @@
 CIRCUITPY_WIFI_SSID = "your-wifi-ssid"
 CIRCUITPY_WIFI_PASSWORD = "your-wifi-password"
 
-# UTC offset in hours (e.g. -5 for EST, -4 for EDT)
+# IANA timezone for automatic DST handling
+# Full list: http://worldtimeapi.org/timezones
+TIMEZONE = "America/New_York"
+
+# Fallback UTC offset if timezone API is unreachable
+# (e.g. -5 for EST, -4 for EDT, +1 for CET)
 TZ_OFFSET = "-5"

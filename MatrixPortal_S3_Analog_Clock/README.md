@@ -38,7 +38,9 @@ offline manual mode without them.
    on the MatrixPortal S3
 2. Copy the required libraries to `/lib` on the CIRCUITPY drive
 3. Copy `settings.toml` and `code.py` to the root of the CIRCUITPY drive
-4. Edit `settings.toml` with your WiFi credentials and timezone offset
+4. Edit `settings.toml` with your WiFi credentials and IANA timezone
+   string (e.g. `America/New_York`, `Europe/London`, `Asia/Tokyo`)
+   — see http://worldtimeapi.org/timezones for the full list
 
 ## Usage
 
@@ -72,6 +74,15 @@ The background gradient changes automatically based on the time of day:
 | Night   | 8 PM–6 AM   | Pink → Purple → Blue            | Yellow     |
 
 Color palettes are inspired by the Florida Arts License Plate.
+
+### Daylight Saving Time
+
+The clock automatically handles DST by querying
+[worldtimeapi.org](http://worldtimeapi.org) at boot. Set `TIMEZONE` in
+`settings.toml` to your IANA timezone string (e.g. `America/New_York`)
+and the correct UTC offset — including any DST adjustment — is fetched
+automatically. If the API is unreachable, the clock falls back to the
+static `TZ_OFFSET` value.
 
 ### Features
 
