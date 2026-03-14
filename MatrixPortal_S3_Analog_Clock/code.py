@@ -204,32 +204,24 @@ def compute_dst_offset(std_offset):
     """
     if not DST_AUTO:
         return std_offset
-    now_t = time.localtime()
-    year = now_t.tm_year
-    # 2nd Sunday in March (weekday 6 = Sunday)
+    cur = time.localtime()
+    year = cur.tm_year
     dst_start_day = _nth_weekday(year, 3, 6, 2)
-    # 1st Sunday in November
     dst_end_day = _nth_weekday(year, 11, 6, 1)
-    month = now_t.tm_mon
-    day = now_t.tm_mday
-    hour = now_t.tm_hour
-    # Check if we are in the DST window
-    if month < 3 or month > 11:
-        return std_offset
-    if month > 3 and month < 11:
-        return std_offset + 1
-    if month == 3:
-        if day > dst_start_day:
-            return std_offset + 1
-        if day == dst_start_day and hour >= 2:
-            return std_offset + 1
-        return std_offset
-    # month == 11
-    if day > dst_end_day:
-        return std_offset
-    if day == dst_end_day and hour >= 2:
-        return std_offset
-    return std_offset + 1
+    month = cur.tm_mon
+    day = cur.tm_mday
+    hour = cur.tm_hour
+    # Determine if current date/time falls in DST window
+    in_dst = False
+    if 3 < month < 11:
+        in_dst = True
+    elif month == 3:
+        in_dst = (day > dst_start_day
+                  or (day == dst_start_day and hour >= 2))
+    elif month == 11:
+        in_dst = (day < dst_end_day
+                  or (day == dst_end_day and hour < 2))
+    return std_offset + 1 if in_dst else std_offset
 def lerp_color(color_a, color_b, frac):
     """Blend two (r, g, b) tuples by fraction 0.0-1.0."""
     return (
