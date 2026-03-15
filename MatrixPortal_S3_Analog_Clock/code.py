@@ -525,7 +525,7 @@ if not has_wifi:
     hold_start = 0.0  # pylint: disable=invalid-name
     HOLD_TIME = 1.5  # seconds to hold for confirm
 
-    print("Manual time set: UP=increment, DOWN=next field")
+    print("Manual time set: UP=increment, DOWN=toggle field")
     print("  Long press either button to confirm")
 
     while True:
@@ -546,31 +546,22 @@ if not has_wifi:
             if hold_start == 0.0:
                 hold_start = time.monotonic()  # pylint: disable=invalid-name
             elif time.monotonic() - hold_start >= HOLD_TIME:
-                if editing_hr:
-                    # Long press on hours: skip to minutes
-                    editing_hr = False  # pylint: disable=invalid-name
-                    print("Hour set: {}".format(set_hour))
-                else:
-                    # Long press on minutes: accept time
-                    print("Minute set: {}".format(set_min))
-                    now_t = time.localtime()
-                    rtc.RTC().datetime = time.struct_time((
-                        now_t.tm_year, now_t.tm_mon,
-                        now_t.tm_mday, set_hour, set_min,
-                        0, now_t.tm_wday, now_t.tm_yday, -1
-                    ))
-                    print("RTC set to {:02d}:{:02d}".format(
-                        set_hour, set_min
-                    ))
-                    break
-                hold_start = 0.0  # pylint: disable=invalid-name
-                # Wait for button release
-                while not btn_up.value or not btn_down.value:
-                    time.sleep(0.05)
+                # Long press: accept time
+                print("Time confirmed")
+                cur_t = time.localtime()
+                rtc.RTC().datetime = time.struct_time((
+                    cur_t.tm_year, cur_t.tm_mon,
+                    cur_t.tm_mday, set_hour, set_min,
+                    0, cur_t.tm_wday, cur_t.tm_yday, -1
+                ))
+                print("RTC set to {:02d}:{:02d}".format(
+                    set_hour, set_min
+                ))
+                break
         else:
             hold_start = 0.0  # pylint: disable=invalid-name
 
-        # -- Short press: UP increments, DOWN moves field --
+        # -- Short press: UP increments, DOWN toggles field --
         if up_now and not up_prev:
             if editing_hr:
                 set_hour = (set_hour + 1) % 24  # pylint: disable=invalid-name
@@ -578,10 +569,11 @@ if not has_wifi:
                 set_min = (set_min + 1) % 60  # pylint: disable=invalid-name
 
         if dn_now and not dn_prev:
+            editing_hr = not editing_hr  # pylint: disable=invalid-name
             if editing_hr:
-                # Short DOWN on hours: move to minutes
-                editing_hr = False  # pylint: disable=invalid-name
-                print("Hour set: {}".format(set_hour))
+                print("Editing: hours")
+            else:
+                print("Editing: minutes")
 
         up_prev = up_now  # pylint: disable=invalid-name
         dn_prev = dn_now  # pylint: disable=invalid-name

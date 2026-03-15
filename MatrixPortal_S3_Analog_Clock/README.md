@@ -50,8 +50,9 @@ automatically. Time re-syncs every hour.
 **Offline mode** — If no WiFi credentials are found or the connection
 fails, the display shows a message and enters a manual time-set screen:
 
-- **UP button** increments the blinking value (hours, then minutes)
-- **DOWN button** confirms and moves to the next field
+- **UP button (short press)** — Increment the blinking value
+- **DOWN button (short press)** — Toggle between hours and minutes
+- **Long press either button (1.5s)** — Confirm time and start clock
 
 ### Controls (Clock Running)
 
